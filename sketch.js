@@ -1,48 +1,94 @@
-let beats = [
-  { time: 1.0, x: 200 },
-  { time: 1.5, x: 600 },
-  { time: 2.0, x: 200 },
-  { time: 2.5, x: 600 },
-  // ...可依音樂節奏繼續增加
-];
-let startTime;
+let video;
+let handpose;
+let predictions = [];
+let beats = [];
+let beatIndex = 0;
+let beatInterval = 600; // 根據音樂節奏調整
+let lastBeatTime = 0;
+let assistLineY = 0;
 
 function setup() {
   createCanvas(800, 600);
-  startTime = millis();
+  video = createCapture(VIDEO);
+  video.size(640, 480);
+  video.hide();
+
+  handpose = ml5.handpose(video, modelReady);
+  handpose.on("predict", results => {
+    predictions = results;
+  });
+
+  // 產生鼓點資料
+  for (let i = 0; i < 20; i++) {
+    beats.push({ y: -i * 120, color: color(0, 120, 255), hit: false });
+  }
+}
+
+function modelReady() {
+  console.log("Handpose model loaded!");
 }
 
 function draw() {
-  // 灰色半透明背景
+  // 半透明灰色背景
   background(60, 60, 60, 180);
 
-  // 加入花邊裝飾（例如四角圓點與漸層邊框）
-  noStroke();
-  for (let i = 0; i < 4; i++) {
-    let x = i % 2 === 0 ? 30 : width - 30;
-    let y = i < 2 ? 30 : height - 30;
-    fill(180 + 40 * sin(frameCount * 0.02 + i), 180, 255, 180);
-    ellipse(x, y, 40 + 10 * sin(frameCount * 0.03 + i), 40 + 10 * sin(frameCount * 0.03 + i));
-  }
+  // 花邊裝飾
+  drawDecorations();
 
-  // 漸層邊框
-  for (let t = 0; t < 10; t++) {
-    let alpha = map(t, 0, 9, 80, 0);
-    noFill();
-    stroke(180, 180, 255, alpha);
-    strokeWeight(8 - t * 0.7);
-    rect(10 + t * 2, 10 + t * 2, width - 20 - t * 4, height - 20 - t * 4, 30);
-  }
+  // 輔助白線
+  stroke(255, 180);
+  strokeWeight(2);
+  assistLineY = (millis() % beatInterval) / beatInterval * height;
+  line(0, assistLineY, width, assistLineY);
 
-  // 輔助白線（假設有 beats 陣列和 startTime 變數）
-  if (typeof beats !== "undefined" && typeof startTime !== "undefined") {
-    let now = (millis() - startTime) / 1000;
-    for (let beat of beats) {
-      // 計算鼓點目前 y 位置（需與鼓點落下速度一致）
-      let y = (now - beat.time + 1) * 300;
-      stroke(255, 180);
-      strokeWeight(2);
-      line(beat.x - 35, y, beat.x + 35, y);
+  // 鼓點
+  for (let i = 0; i < beats.length; i++) {
+    let beat = beats[i];
+    beat.y += 2; // 鼓點下落速度
+    fill(beat.color);
+    ellipse(width / 2, beat.y, 60, 60);
+
+    // 判定區域
+    if (!beat.hit && abs(beat.y - assistLineY) < 30) {
+      if (detectFist(predictions)) {
+        beat.hit = true;
+        beat.color = color(0, 255, 0); // 擊中變色
+      }
     }
   }
+
+  // 畫出手部關鍵點
+  drawHands();
+}
+
+function drawDecorations() {
+  noFill();
+  stroke(200, 200, 255, 80);
+  strokeWeight(4);
+  for (let i = 0; i < 10; i++) {
+    ellipse(width / 2, height / 2, 700 - i * 40, 500 - i * 30);
+  }
+}
+
+function drawHands() {
+  for (let i = 0; i < predictions.length; i++) {
+    let hand = predictions[i];
+    for (let j = 0; j < hand.landmarks.length; j++) {
+      let [x, y] = hand.landmarks[j];
+      fill(255, 0, 0);
+      noStroke();
+      ellipse(x, y, 10, 10);
+    }
+  }
+}
+
+// 偵測是否握拳
+function detectFist(preds) {
+  if (preds.length === 0) return false;
+  let hand = preds[0];
+  // 以拇指與食指距離判斷（簡化版）
+  let thumb = hand.landmarks[4];
+  let index = hand.landmarks[8];
+  let d = dist(thumb[0], thumb[1], index[0], index[1]);
+  return d < 40;
 }
